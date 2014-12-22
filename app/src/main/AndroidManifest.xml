@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.rwilinski.crashhandler" >
+
+    <application
+        android:allowBackup="true"
+        android:icon="@drawable/ic_launcher"
+        android:label="APP NAME"
+        android:theme="@android:style/Theme.Translucent.NoTitleBar.Fullscreen" >
+        <activity
+            android:name="io.rwilinski.tracely.DataspinAdsActivity"
+            android:label="@string/title_activity_dataspin_ads" >
+        </activity>
+        <activity
+            android:name="io.rwilinski.tracely.TracelyCrashSimulator"
+            android:label="@string/title_activity_tracely_crash_simulator" >
+        </activity>
+    </application>
+
+</manifest>
