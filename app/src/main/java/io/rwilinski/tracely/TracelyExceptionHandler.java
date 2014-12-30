@@ -3,6 +3,7 @@ package io.rwilinski.tracely;
 import android.content.Context;
 import android.os.Build;
 import android.os.Trace;
+import android.util.Base64;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.WindowManager;
@@ -48,84 +49,39 @@ public class TracelyExceptionHandler implements Thread.UncaughtExceptionHandler 
         final PrintWriter printWriter = new PrintWriter(result);
         e.printStackTrace(printWriter);
         try {
-            // Random number to avoid duplicate files
-            Random generator = new Random();
-            int random = generator.nextInt(99999);
-
-            // Embed version in stacktrace filename
-            String filename = "Crash_"+ TracelyInfo.APP_VERSION+"-"+Integer.toString(random);
-            Log.d(TAG, "Writing unhandled exception to: " + TracelyInfo.FILES_PATH + "/" + filename + ".stacktrace");
-
             String stringParams = "";
 
-            DisplayMetrics metrics = new DisplayMetrics();
-            WindowManager windowManager = (WindowManager) TracelyManager.context.getSystemService(Context.WINDOW_SERVICE);
-            windowManager.getDefaultDisplay().getMetrics(metrics);
-
-            // Write the stacktrace to disk
-            BufferedWriter bos = new BufferedWriter(new FileWriter(TracelyInfo.FILES_PATH+"/"+filename+".stacktrace"));
-
             DefaultHttpClient httpClient = new DefaultHttpClient();
-            HttpPost httpPost = new HttpPost(TracelyInfo.URL);
+            HttpPost httpPost = new HttpPost(TracelyInfo.URL + "exception_log/");
             JSONObject params = new JSONObject();
             JSONObject report = new JSONObject();
-            JSONObject report_device = new JSONObject();
-            JSONObject device = new JSONObject();
 
-            device.put("manufacturer", Build.MANUFACTURER);
-            device.put("model", android.os.Build.MODEL);
-            device.put("os",0);
-            device.put("os_version",Build.VERSION.RELEASE);
-            device.put("processor_name", Runtime.getRuntime().availableProcessors());
-            device.put("processor_cores", TracelyManager.getNumCores());
-            device.put("ram", Runtime.getRuntime().maxMemory());
-            device.put("screen_width", metrics.widthPixels);
-            device.put("screen_height", metrics.heightPixels);
-            device.put("dpi", metrics.densityDpi);
-
-            String deviceString = device.toString();
-            deviceString = deviceString.replaceAll("\\\\", "");
             String stackTrace;
-            stackTrace = (e.getStackTrace().toString()).replace("\n","###HWDP###");
-            stackTrace = stackTrace.toString().replace("\\n","###HWDP###");
-            Log.d(TAG, "StackTrace: "+stackTrace);
+            stackTrace = (e.getStackTrace().toString());
 
-            report.put("application", TracelyInfo.API_KEY);
-            report.put("app_version", TracelyInfo.APP_VERSION);
+            String content = Base64.encodeToString(stackTrace.getBytes("UTF-8"), Base64.NO_WRAP);
+
+            params.put("app", TracelyInfo.API_KEY);
+            params.put("app_version", TracelyInfo.APP_VERSION);
             report.put("reason", e.getMessage());
-            report.put("content", stackTrace);
+            report.put("content", content);
+            report.put("user_log", TracelyManager.GetUserLog());
+            report.put("system_log", TracelyManager.getLogcat());
+            report.put("flag", 2);
             report.put("app_start", TracelyManager.getTimestamp());
-            report.put("device", device);
 
-            report_device.put("device_key", TracelyManager.GetDeviceId());
-            report_device.put("disk_space_free", TracelyManager.spaceAvailable());
-            report_device.put("disk_space_total", TracelyManager.spaceTotal());
-            report_device.put("sd_space_free", TracelyManager.sdSpaceAvailable());
-            report_device.put("sd_space_total", TracelyManager.sdSpaceTotal());
-            report_device.put("battery_level", TracelyManager.getBatteryLevel());
-            report_device.put("memory_usage", Runtime.getRuntime().totalMemory());
-            report_device.put("carrier_name", TracelyManager.GetCarrier());
-            report_device.put("rom_name", Build.DISPLAY);
-            report_device.put("build_board", Build.BOARD);
-            report_device.put("is_rooted", TracelyManager.isRooted());
-            report_device.put("connection_type", TracelyManager.GetNetworkClass());
-
-            params.put("report_device", report_device);
-            params.put("report", report);
+            params.put("report_device", TracelyManager.GetReportedDevice());
+            params.put("exception_log", report);
 
             stringParams = params.toString();
             stringParams = stringParams.replaceAll("\\\\","");
 
-            bos.write(stringParams.toString());
-            bos.flush();
-            bos.close();
-
-            Log.d(TAG, "StirngParams: "+stringParams);
+            Log.d(TAG, "StringParams: "+stringParams);
 
             StringEntity se = new StringEntity(stringParams, HTTP.UTF_8);
             httpPost.setEntity(se);
 
-            TracelyHTTPAsyncTask a = new TracelyHTTPAsyncTask(httpPost);
+            TracelyHTTPAsyncTask a = new TracelyHTTPAsyncTask(new TracelyConnection(httpPost, TracelyMethod.TRACELY_REPORT));
             a.execute("a", "b", "c");
         }
         catch (Exception ex) {

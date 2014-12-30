@@ -11,8 +11,12 @@ import io.rwilinski.crashhandler.R;
 
 public class TracelyCrashSimulator extends ActionBarActivity {
 
+    public static TracelyCrashSimulator _instance;
+
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        _instance = this;
         super.onCreate(savedInstanceState);
         Button b = (Button)findViewById(R.id.button);
         b.setOnClickListener(new View.OnClickListener() {
@@ -24,6 +28,11 @@ public class TracelyCrashSimulator extends ActionBarActivity {
             }
         });
         setContentView(R.layout.activity_tracely_crash_simulator);
+    }
+
+    public static TracelyCrashSimulator getInstance() {
+        if(_instance == null) new TracelyCrashSimulator();
+        return _instance;
     }
 
 

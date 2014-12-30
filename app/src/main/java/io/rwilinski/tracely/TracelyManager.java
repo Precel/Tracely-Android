@@ -1,11 +1,12 @@
 package io.rwilinski.tracely;
 
-import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.ActivityInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.BatteryManager;
@@ -16,26 +17,31 @@ import android.telephony.TelephonyManager;
 import android.util.Base64;
 import android.util.DisplayMetrics;
 import android.util.Log;
-import android.view.Display;
+import android.view.Surface;
 import android.view.WindowManager;
 
-import org.apache.http.NameValuePair;
-import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.DefaultHttpClient;
-import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.protocol.HTTP;
+import org.apache.http.util.EntityUtils;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileFilter;
 import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.FilenameFilter;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Properties;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.io.Writer;
+import java.util.Dictionary;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -44,9 +50,12 @@ public class TracelyManager {
     private static TracelyManager _instance;
 
     public static String LOGTAG = "TracelyManager";
+    public static boolean isDebug = true;
+    public static Context context;
+
+    public static JSONArray USER_LOG;
 
     private static String[] stackTraceFileList = null;
-    public static Context context;
 
     public TracelyManager() {
         this._instance = this;
@@ -63,29 +72,49 @@ public class TracelyManager {
         TracelyInfo.API_KEY = key;
     }
 
-    public static void Test() {
-        Log.d(LOGTAG, "Test!");
-    }
-
     public static void SimulateHardCrash(Object contextObject) {
-        Context c = (Context) contextObject;
-        Intent intent = new Intent(c, TracelyCrashSimulator.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        c.startActivity(intent);
+        TracelyCrashSimulator t = TracelyCrashSimulator.getInstance();
+        t.recreate();
     }
 
-    public void showAd(Object contextObject) {
-        Context c = (Context) contextObject;
-        Intent intent = new Intent(c, TracelyCrashSimulator.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        c.startActivity(intent);
+    public static void SetDebug(boolean b) {
+        isDebug = b;
+    }
+
+    public static void Logger(String msg) {
+        if(isDebug) {
+            Log.i(LOGTAG, msg);
+        }
+    }
+
+    public static void Base64Encode(String str) {
+        String result = "";
+        Logger("-------BASE64 TESTS------");
+        result = Base64.encodeToString(str.getBytes(), Base64.DEFAULT);
+        Logger( "#1: "+result);
+
+        try {
+            result = Base64.encodeToString(str.getBytes("UTF-8"), Base64.DEFAULT);
+            Logger("#2: "+result);
+
+            result = Base64.encodeToString(str.getBytes( "ISO-8859-1"), Base64.DEFAULT);
+            Logger("#3: "+result);
+        }
+        catch(Exception e) {
+            Logger( "Bash64 Exception: "+e.getMessage());
+            e.printStackTrace();
+        }
     }
 
     public static boolean RegisterExceptionHandler(Object contextObject) {
         Context context = (Context) contextObject;
         TracelyManager.context = context;
 
-        Log.i(LOGTAG, "Registering default exceptions handler");
+        USER_LOG = new JSONArray();
+
+        AddToUserLog("TRACELY","Tracely initialized from context "+context.getPackageName(), null);
+
+        Logger( "Registering default exceptions handler");
         // Get information about the Package
         PackageManager pm = context.getPackageManager();
         try {
@@ -105,7 +134,7 @@ public class TracelyManager {
             e.printStackTrace();
         }
 
-        Log.i(LOGTAG, "TRACE_VERSION: " + TracelyInfo.TraceVersion);
+        Logger( "TRACE_VERSION: " + TracelyInfo.TraceVersion);
         Log.d(LOGTAG, "APP_VERSION: " + TracelyInfo.APP_VERSION);
         Log.d(LOGTAG, "APP_PACKAGE: " + TracelyInfo.APP_PACKAGE);
         Log.d(LOGTAG, "FILES_PATH: " + TracelyInfo.FILES_PATH);
@@ -137,15 +166,9 @@ public class TracelyManager {
 
         Log.d(LOGTAG, "Exception handler registered successfully!");
 
+        Launch();
+
         return stackTracesFound;
-    }
-
-    public static void SimulateStackOverflow() {
-        TracelyManager.SimulateStackOverflow();
-    }
-
-    public static void RuntimeException() {
-        throw new RuntimeException("This is a crash");
     }
 
     public static void submitStackTraces() {
@@ -165,17 +188,35 @@ public class TracelyManager {
                         contents.append(line);
                     }
                     input.close();
+
                     String json = contents.toString();
+                    JSONObject jsonObject = new JSONObject(json);
+                    int method = jsonObject.getInt("method");
+                    json = jsonObject.getString("json");
+
                     Log.d(LOGTAG, "Transmitting stack trace: " + json);
 
                     DefaultHttpClient httpClient = new DefaultHttpClient();
-                    HttpPost httpPost = new HttpPost(TracelyInfo.URL);
 
+                    String URL = TracelyInfo.URL;
+                    switch(TracelyMethod.toEnum(method)) {
+                        case TRACELY_REPORT:
+                            URL += "exception_log/";
+                            break;
+                        case TRACELY_LAUNCH:
+                            URL += "launch/";
+                            break;
+                    }
+
+                    HttpPost httpPost = new HttpPost(URL);
                     StringEntity se = new StringEntity(json, HTTP.UTF_8);
                     httpPost.setEntity(se);
-                    TracelyHTTPAsyncTask a = new TracelyHTTPAsyncTask(httpPost);
+                    TracelyHTTPAsyncTask a = new TracelyHTTPAsyncTask(new TracelyConnection(httpPost, TracelyMethod.toEnum(method)));
                     a.execute("abcd");
                 }
+            }
+            else {
+                Log.d(LOGTAG, "Stack traces not found!");
             }
         } catch( Exception e ) {
             Log.d(LOGTAG,"Failed to submit stacktraces!");
@@ -184,6 +225,7 @@ public class TracelyManager {
             try {
                 String[] list = searchForStackTraces();
                 for ( int i = 0; i < list.length; i ++ ) {
+                    Log.d(LOGTAG, "Deleting "+list[i]);
                     File file = new File(TracelyInfo.FILES_PATH+"/"+list[i]);
                     file.delete();
                 }
@@ -193,69 +235,60 @@ public class TracelyManager {
         }
     }
 
+    public static void saveRequestToStorage(String data) {
+        Log.d(LOGTAG, "Saving: "+data);
+        final Writer result = new StringWriter();
+        final PrintWriter printWriter = new PrintWriter(result);
+
+        try {
+            String filename = "Crash_" + TracelyInfo.APP_VERSION + "-" + getTimestamp();
+            BufferedWriter bos = new BufferedWriter(new FileWriter(TracelyInfo.FILES_PATH + "/" + filename + ".stacktrace"));
+            bos.write(data);
+            bos.flush();
+            bos.close();
+
+            Log.d(LOGTAG, "Writing file " + TracelyInfo.FILES_PATH + "/" + filename + ".stacktrace" + " success!");
+        }
+        catch(Exception e) {
+            Logger( "Failed to save file! "+e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
     public static void TestConnection_1() {
         Log.d(LOGTAG, "Testing connection");
         DefaultHttpClient httpClient = new DefaultHttpClient();
-        HttpPost httpPost = new HttpPost(TracelyInfo.URL);
+        HttpPost httpPost = new HttpPost(TracelyInfo.URL + "exception_log/");
         String stringParams = "";
 
         DisplayMetrics metrics = new DisplayMetrics();
         WindowManager windowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
         windowManager.getDefaultDisplay().getMetrics(metrics);
 
-
         try {
             JSONObject params = new JSONObject();
             JSONObject report = new JSONObject();
-            JSONObject report_device = new JSONObject();
-            JSONObject device = new JSONObject();
 
-            device.put("manufacturer", Build.MANUFACTURER);
-            device.put("model", android.os.Build.MODEL);
-            device.put("os",0);
-            device.put("os_version",Build.VERSION.RELEASE);
-            device.put("processor_name", Runtime.getRuntime().availableProcessors());
-            device.put("processor_cores", getNumCores());
-            device.put("ram", Runtime.getRuntime().maxMemory());
-            device.put("screen_width", metrics.widthPixels);
-            device.put("screen_height", metrics.heightPixels);
-            device.put("dpi", metrics.densityDpi);
+            String content = Base64.encodeToString("Stacktrace here... test test test".getBytes("UTF-8"), Base64.NO_WRAP);
+            Log.d(LOGTAG, "CONTENT encoded: "+content);
 
-            String deviceString = device.toString();
-            deviceString = deviceString.replaceAll("\\\\", "");
-
-            report.put("application", TracelyInfo.API_KEY);
-            report.put("app_version", TracelyInfo.APP_VERSION);
+            params.put("app", TracelyInfo.API_KEY);
+            params.put("app_version", TracelyInfo.APP_VERSION);
             report.put("reason", "CRASH - test string");
-            report.put("content", "CASE_1");
+            report.put("content", content);
+            report.put("user_log", GetUserLog());
+            report.put("system_log",  getLogcat());
             report.put("app_start", getTimestamp());
-            report.put("device", device);
+            report.put("flag", 0); //Exception
 
-            report_device.put("device_key", TracelyManager.GetDeviceId());
-            report_device.put("disk_space_free", spaceAvailable());
-            report_device.put("disk_space_total", spaceTotal());
-            report_device.put("sd_space_free", sdSpaceAvailable());
-            report_device.put("sd_space_total", sdSpaceTotal());
-            report_device.put("battery_level", getBatteryLevel());
-            report_device.put("memory_usage", Runtime.getRuntime().totalMemory());
-            report_device.put("carrier_name", GetCarrier());
-            report_device.put("rom_name", Build.DISPLAY);
-            report_device.put("build_board", Build.BOARD);
-            report_device.put("is_rooted", TracelyManager.isRooted());
-            report_device.put("connection_type", TracelyManager.GetNetworkClass());
-
-            params.put("report_device", report_device);
-            params.put("report", report);
+            params.put("report_device", GetReportedDevice());
+            params.put("exception_log", report);
 
             stringParams = params.toString();
             stringParams = stringParams.replaceAll("\\\\","");
-
-            Log.d(LOGTAG, deviceString);
-            Log.d(LOGTAG, report.toString());
-            Log.d(LOGTAG, report_device.toString());
         }
         catch(Exception e) {
-            Log.w(LOGTAG, "Json creation failed!");
+            Logger( "Json creation failed!");
             e.printStackTrace();
         }
 
@@ -267,50 +300,295 @@ public class TracelyManager {
         catch(Exception e) {
             Log.d(LOGTAG,"failed to set entity");
         }
-        TracelyHTTPAsyncTask a = new TracelyHTTPAsyncTask(httpPost);
+
+        TracelyHTTPAsyncTask a = new TracelyHTTPAsyncTask(new TracelyConnection(httpPost, TracelyMethod.TRACELY_REPORT));
+        a.execute("a", "b", "c");
+    }
+
+    private static void Launch() {
+        DefaultHttpClient httpClient = new DefaultHttpClient();
+        HttpPost httpPost = new HttpPost(TracelyInfo.URL + "launch/");
+        String stringParams = "";
+
+        DisplayMetrics metrics = new DisplayMetrics();
+        WindowManager windowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
+        windowManager.getDefaultDisplay().getMetrics(metrics);
+
+        try {
+            JSONObject params = new JSONObject();
+            JSONObject report = new JSONObject();
+
+            params.put("app", TracelyInfo.API_KEY);
+            params.put("app_version", TracelyInfo.APP_VERSION);
+            report.put("app_start", getTimestamp());
+
+            params.put("report_device", GetReportedDevice());
+            params.put("launch", report);
+
+            stringParams = params.toString();
+            stringParams = stringParams.replaceAll("\\\\","");
+
+        }
+        catch(Exception e) {
+            Logger( "Json creation failed!");
+            e.printStackTrace();
+        }
+
+        try {
+            Log.d(LOGTAG, "URL: "+TracelyInfo.URL + "launch/");
+            Log.d(LOGTAG, "StringParams: "+stringParams);
+            StringEntity se = new StringEntity(stringParams, HTTP.UTF_8);
+            httpPost.setEntity(se);
+        }
+        catch(Exception e) {
+            Log.d(LOGTAG,"failed to set entity");
+        }
+        TracelyHTTPAsyncTask a = new TracelyHTTPAsyncTask(new TracelyConnection(httpPost, TracelyMethod.TRACELY_LAUNCH));
         a.execute("a", "b", "c");
     }
 
     public static void RegisterHandledException(String cause, String stackTrace) {
         DefaultHttpClient httpClient = new DefaultHttpClient();
-        HttpPost httpPost = new HttpPost(TracelyInfo.URL);
+        HttpPost httpPost = new HttpPost(TracelyInfo.URL + "exception_log/");
         String stringParams = "";
-
-        DisplayMetrics metrics = new DisplayMetrics();
-        WindowManager windowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
-        windowManager.getDefaultDisplay().getMetrics(metrics);
 
         try {
             JSONObject params = new JSONObject();
             JSONObject report = new JSONObject();
-            JSONObject report_device = new JSONObject();
-            JSONObject device = new JSONObject();
 
-            device.put("manufacturer", Build.MANUFACTURER);
-            device.put("model", android.os.Build.MODEL);
-            device.put("os",0);
-            device.put("os_version",Build.VERSION.RELEASE);
-            device.put("processor_name", Runtime.getRuntime().availableProcessors());
-            device.put("processor_cores", getNumCores());
-            device.put("ram", Runtime.getRuntime().maxMemory());
-            device.put("screen_width", metrics.widthPixels);
-            device.put("screen_height", metrics.heightPixels);
-            device.put("dpi", metrics.densityDpi);
+            String content = Base64.encodeToString(stackTrace.getBytes("UTF-8"), Base64.NO_WRAP);
 
-            String deviceString = device.toString();
-            deviceString = deviceString.replaceAll("\\\\", "");
-
-            Log.d(LOGTAG, "StackTrace: "+stackTrace);
-            stackTrace = stackTrace.replaceAll("\\n", "###HWDP###");
-            stackTrace = stackTrace.replaceAll("\n", "###HWDP###");
-
-            report.put("application", TracelyInfo.API_KEY);
-            report.put("app_version", TracelyInfo.APP_VERSION);
+            params.put("app", TracelyInfo.API_KEY);
+            params.put("app_version", TracelyInfo.APP_VERSION);
             report.put("reason", cause);
-            report.put("content", stackTrace);
+            report.put("content", content);
+            report.put("user_log", GetUserLog());
+            report.put("system_log", getLogcat());
             report.put("app_start", getTimestamp());
-            report.put("device", device);
+            report.put("flag", 1);
 
+            params.put("report_device", GetReportedDevice());
+            params.put("exception_log", report);
+
+            stringParams = params.toString();
+            stringParams = stringParams.replaceAll("\\\\","");
+
+        }
+        catch(Exception e) {
+            Logger( "Json creation failed!");
+            e.printStackTrace();
+        }
+
+        try {
+            Log.d(LOGTAG, "StringParams: "+stringParams);
+            StringEntity se = new StringEntity(stringParams, HTTP.UTF_8);
+            httpPost.setEntity(se);
+        }
+        catch(Exception e) {
+            Log.d(LOGTAG,"failed to set entity");
+        }
+
+        TracelyHTTPAsyncTask a = new TracelyHTTPAsyncTask(new TracelyConnection(httpPost, TracelyMethod.TRACELY_REPORT));
+        a.execute("a", "b", "c");
+    }
+
+    public static void RegisterUnhandledException(String cause, String stackTrace) {
+        DefaultHttpClient httpClient = new DefaultHttpClient();
+        HttpPost httpPost = new HttpPost(TracelyInfo.URL + "exception_log/");
+        String stringParams = "";
+
+        try {
+            JSONObject params = new JSONObject();
+            JSONObject report = new JSONObject();
+
+            String content = Base64.encodeToString(stackTrace.getBytes("UTF-8"), Base64.NO_WRAP);
+
+            params.put("app", TracelyInfo.API_KEY);
+            params.put("app_version", TracelyInfo.APP_VERSION);
+            report.put("reason", cause);
+            report.put("content", content);
+            report.put("user_log", GetUserLog());
+            report.put("system_log", getLogcat());
+            report.put("app_start", getTimestamp());
+            report.put("flag", 0);
+
+            params.put("report_device", GetReportedDevice());
+            params.put("exception_log", report);
+
+            stringParams = params.toString();
+            stringParams = stringParams.replaceAll("\\\\","");
+
+        }
+        catch(Exception e) {
+            Logger( "Json creation failed!");
+            e.printStackTrace();
+        }
+
+        try {
+            Log.d(LOGTAG, "StringParams: "+stringParams);
+            StringEntity se = new StringEntity(stringParams, HTTP.UTF_8);
+            httpPost.setEntity(se);
+        }
+        catch(Exception e) {
+            Log.d(LOGTAG,"failed to set entity");
+        }
+
+        TracelyHTTPAsyncTask a = new TracelyHTTPAsyncTask(new TracelyConnection(httpPost, TracelyMethod.TRACELY_REPORT));
+        a.execute("a", "b", "c");
+    }
+
+    public static void RegisterErrorException(String cause, String stackTrace) {
+        DefaultHttpClient httpClient = new DefaultHttpClient();
+        HttpPost httpPost = new HttpPost(TracelyInfo.URL + "exception_log/");
+        String stringParams = "";
+
+        try {
+            JSONObject params = new JSONObject();
+            JSONObject report = new JSONObject();
+
+            String content = Base64.encodeToString(stackTrace.getBytes("UTF-8"), Base64.NO_WRAP);
+
+            params.put("app", TracelyInfo.API_KEY);
+            params.put("app_version", TracelyInfo.APP_VERSION);
+            report.put("reason", cause);
+            report.put("content", content);
+            report.put("user_log", GetUserLog());
+            report.put("system_log",  getLogcat());
+            report.put("app_start", getTimestamp());
+            report.put("flag", 2);
+
+            params.put("report_device", GetReportedDevice());
+            params.put("exception_log", report);
+
+            stringParams = params.toString();
+            stringParams = stringParams.replaceAll("\\\\","");
+
+        }
+        catch(Exception e) {
+            Logger( "Json creation failed!");
+            e.printStackTrace();
+        }
+
+        try {
+            Log.d(LOGTAG, "StringParams: "+stringParams);
+            StringEntity se = new StringEntity(stringParams, HTTP.UTF_8);
+            httpPost.setEntity(se);
+        }
+        catch(Exception e) {
+            Log.d(LOGTAG,"failed to set entity");
+        }
+
+        TracelyHTTPAsyncTask a = new TracelyHTTPAsyncTask(new TracelyConnection(httpPost, TracelyMethod.TRACELY_REPORT));
+        a.execute("a", "b", "c");
+    }
+
+    public static void SendPings(JSONArray array) {
+        HttpPost httpPost = new HttpPost(TracelyInfo.URL + "latency/");
+        String stringParams = "";
+        try {
+            Log.d(LOGTAG, "Sending pings array");
+
+            JSONObject report = new JSONObject();
+
+            report.put("app", TracelyInfo.API_KEY);
+            report.put("app_version", TracelyInfo.APP_VERSION);
+            report.put("report_device", GetReportedDevice());
+            report.put("latency", array);
+
+            stringParams = report.toString();
+            stringParams = stringParams.replaceAll("\\\\","");
+
+        }
+        catch (Exception e) {
+            Log.d(LOGTAG, "Failed to send pings... "+e.getMessage());
+            e.printStackTrace();
+        }
+
+        try {
+            Log.d(LOGTAG, "StringParams: "+stringParams);
+            StringEntity se = new StringEntity(stringParams, HTTP.UTF_8);
+            httpPost.setEntity(se);
+        }
+        catch(Exception e) {
+            Log.d(LOGTAG,"failed to set entity");
+        }
+
+        TracelyHTTPAsyncTask a = new TracelyHTTPAsyncTask(new TracelyConnection(httpPost, TracelyMethod.TRACELY_PING));
+        a.execute("a", "b", "c");
+    }
+
+    public static void HandleResponse(TracelyConnection connection) {
+        try {
+            Log.d(LOGTAG, "Request - "+connection.method.toString());
+            Log.d(LOGTAG, "Response status code: " + connection.response.getStatusLine().getStatusCode());
+            String responseBody = EntityUtils.toString(connection.response.getEntity());
+            Log.d(LOGTAG, responseBody);
+
+            if(connection.method == TracelyMethod.TRACELY_LAUNCH) {
+                Log.d(LOGTAG, "Getting array of pings...");
+                JSONArray pingsArray = new JSONArray(responseBody);
+
+                Runnable r = new TracelyPingsThread(pingsArray);
+                new Thread(r).start();
+            }
+            else {
+                Log.d(LOGTAG, "No need to handle response.");
+            }
+        }
+        catch(Exception e) {
+            Log.d(LOGTAG, "Couldn't handle reponse! "+e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    public static void AddToUserLog(String tag, String message, Dictionary<String, String> dict) {
+        JSONObject json = new JSONObject();
+        try {
+            json.put("tag", tag);
+            json.put("message", message);
+            if(dict != null) {
+                if(!dict.isEmpty()) {
+                    JSONArray params = new JSONArray(dict);
+                    json.put("extra_data", params);
+                    USER_LOG.put(json);
+                }
+            }
+        }
+        catch(Exception e) {
+            Log.w(LOGTAG,"Couldn't create User_log json. "+e.getMessage());
+            e.getMessage();
+        }
+    }
+
+    public static void AddToUserLog(String tag, String message) {
+        JSONObject json = new JSONObject();
+        try {
+            json.put("tag", tag);
+            json.put("message", message);
+            USER_LOG.put(json);
+        }
+        catch(Exception e) {
+            Log.w(LOGTAG,"Couldn't create User_log json. "+e.getMessage());
+            e.getMessage();
+        }
+    }
+
+    public static String GetUserLog() {
+        String json = USER_LOG.toString();
+        json.replaceAll("\\\\","");
+        try {
+            return Base64.encodeToString(json.getBytes("UTF-8"), Base64.NO_WRAP);
+        }
+        catch(Exception e) {
+            e.printStackTrace();
+            return "";
+        }
+    }
+
+    public static JSONObject GetReportedDevice() {
+        JSONObject report_device = new JSONObject();
+
+        try {
             report_device.put("device_key", TracelyManager.GetDeviceId());
             report_device.put("disk_space_free", spaceAvailable());
             report_device.put("disk_space_total", spaceTotal());
@@ -323,36 +601,47 @@ public class TracelyManager {
             report_device.put("build_board", Build.BOARD);
             report_device.put("is_rooted", TracelyManager.isRooted());
             report_device.put("connection_type", TracelyManager.GetNetworkClass());
-
-            params.put("report_device", report_device);
-            params.put("report", report);
-
-            stringParams = params.toString();
-            stringParams = stringParams.replaceAll("\\\\","");
-
+            report_device.put("screen_orientation",getDeviceOrientation());
+            report_device.put("device", GetDevice());
         }
         catch(Exception e) {
-            Log.w(LOGTAG, "Json creation failed!");
+            Logger( e.getMessage());
             e.printStackTrace();
         }
 
+        return report_device;
+    }
+
+    public static JSONObject GetDevice() {
+        JSONObject device = new JSONObject();
+
+        DisplayMetrics metrics = new DisplayMetrics();
+        WindowManager windowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
+        windowManager.getDefaultDisplay().getMetrics(metrics);
+
         try {
-            Log.d(LOGTAG, "StringParams: "+stringParams);
-            StringEntity se = new StringEntity(stringParams, HTTP.UTF_8);
-            httpPost.setEntity(se);
+            device.put("manufacturer", Build.MANUFACTURER);
+            device.put("model", android.os.Build.MODEL);
+            device.put("os", 0);
+            device.put("os_version", Build.VERSION.RELEASE);
+            device.put("processor_name", getCpuInfo());
+            device.put("processor_cores", getNumCores());
+            device.put("ram", Runtime.getRuntime().maxMemory());
+            device.put("screen_width", metrics.widthPixels);
+            device.put("screen_height", metrics.heightPixels);
+            device.put("dpi", metrics.densityDpi);
         }
         catch(Exception e) {
-            Log.d(LOGTAG,"failed to set entity");
+            Logger( e.getMessage());
+            e.printStackTrace();
         }
-        TracelyHTTPAsyncTask a = new TracelyHTTPAsyncTask(httpPost);
-        a.execute("a", "b", "c");
+
+        return device;
     }
 
     public static boolean isRooted() {
         return findBinary("su");
     }
-
-
 
     public static boolean findBinary(String binaryName) {
         boolean found = false;
@@ -497,10 +786,7 @@ public class TracelyManager {
     }
 
     private static String[] searchForStackTraces() {
-        Log.d(LOGTAG, "Searching for stacktraces");
-        if ( stackTraceFileList != null ) {
-            return stackTraceFileList;
-        }
+        Log.d(LOGTAG, "Searching for stacktraces...");
         File dir = new File(TracelyInfo.FILES_PATH + "/");
         // Try to create the files folder if it doesn't exist
         dir.mkdir();
@@ -511,5 +797,95 @@ public class TracelyManager {
             }
         };
         return (stackTraceFileList = dir.list(filter));
+    }
+
+    public static String getCpuInfo() {
+        try {
+            Process proc = Runtime.getRuntime().exec("cat /proc/cpuinfo");
+            InputStream is = proc.getInputStream();
+            return getStringFromInputStream(is);
+        }
+        catch (IOException e) {
+            Log.e(LOGTAG, "------ getCpuInfo " + e.getMessage());
+        }
+        return "unknown";
+    }
+
+    private static String getStringFromInputStream(InputStream is) {
+        StringBuilder sb = new StringBuilder();
+        BufferedReader br = new BufferedReader(new InputStreamReader(is));
+        String line = null;
+
+        try {
+            while((line = br.readLine()) != null) {
+                sb.append(line);
+                sb.append("\n");
+
+                if(line.contains("Hardware")) {
+                    return line.replace("Hardwaret: ", "");
+                }
+            }
+        }
+        catch (IOException e) {
+            Log.e(LOGTAG, "--- getStringFromInputStream " + e.getMessage());
+        }
+        finally {
+            if(br != null) {
+                try {
+                    br.close();
+                }
+                catch (IOException e) {
+                    Log.e(LOGTAG, "------ getStringFromInputStream " + e.getMessage());
+                }
+            }
+        }
+        return "unknown";
+    }
+
+    public static int getDeviceOrientation() {
+        final int rotation = ((WindowManager) context.getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay().getOrientation();
+        switch (rotation) {
+            case Surface.ROTATION_0:
+                return 0;
+            case Surface.ROTATION_90:
+                return 1;
+            case Surface.ROTATION_180:
+                return 2;
+            default:
+                return 3;
+        }
+    }
+
+    public static String getLogcat() {
+        String logcat = "UNKNOWN";
+        try {
+            Process process = Runtime.getRuntime().exec("logcat -d -t 100");
+            BufferedReader bufferedReader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream()));
+
+            StringBuilder log=new StringBuilder();
+            String line = "";
+            while ((line = bufferedReader.readLine()) != null) {
+                if(!line.contains("Tracely")) log.append(line + "\n");
+            }
+            logcat = log.toString();
+            Logger("Escaped logcat: "+logcat);
+        }
+        catch (IOException e) {
+            logcat = "Failed to get, probably permission READ_LOGS is missing. True cause: "+e.getMessage();
+            e.printStackTrace();
+        }
+        String output = "UNKNOWN";
+        try {
+            output = Base64.encodeToString(logcat.getBytes("UTF-8"), Base64.NO_WRAP);
+            output.replaceAll("-","+");
+        }
+        catch(Exception e) {
+            Logger( e.getMessage());
+            e.printStackTrace();
+            return "";
+        }
+
+        return output;
     }
 }

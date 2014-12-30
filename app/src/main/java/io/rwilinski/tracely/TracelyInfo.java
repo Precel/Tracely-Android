@@ -11,6 +11,6 @@ public class TracelyInfo {
     public static String PHONE_MODEL 				= "unknown";
     public static String ANDROID_VERSION            = "unknown";
     // Where are the stack traces posted?
-    public static String URL						= "http://trcr.pl/api/v1/report/";
+    public static String URL						= "http://trcr.pl/api/v1/";
     public static String TraceVersion				= "0.1";
 }
