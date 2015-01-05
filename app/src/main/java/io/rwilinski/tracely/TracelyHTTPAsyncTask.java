@@ -7,7 +7,6 @@ import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.HttpClient;
-import org.apache.http.client.methods.HttpPost;
 import org.apache.http.impl.client.DefaultHttpClient;
 import org.apache.http.util.EntityUtils;
 import org.json.JSONObject;
@@ -25,14 +24,12 @@ public class TracelyHTTPAsyncTask extends AsyncTask<String, Void, String> {
     private TracelyConnection connection;
     public TracelyHTTPAsyncTask(TracelyConnection connection){
         this.connection = connection;
-
     }
 
     @Override
     protected String doInBackground(String... params) {
-        HttpClient httpClient = new DefaultHttpClient();
-
         try {
+            HttpClient httpClient = new DefaultHttpClient();
             HttpResponse response = httpClient.execute(connection.post);
             connection.response = response;
             int code = connection.response.getStatusLine().getStatusCode();

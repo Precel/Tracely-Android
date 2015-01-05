@@ -24,6 +24,7 @@ import java.io.StringWriter;
 import java.io.Writer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 
 /**
@@ -55,22 +56,54 @@ public class TracelyExceptionHandler implements Thread.UncaughtExceptionHandler 
             HttpPost httpPost = new HttpPost(TracelyInfo.URL + "exception_log/");
             JSONObject params = new JSONObject();
             JSONObject report = new JSONObject();
+            JSONObject exception_data = new JSONObject();
 
-            String stackTrace;
-            stackTrace = (e.getStackTrace().toString());
+            String stackTrace = "";
+            try {
+                Log.e(TAG, "MSG: " + e.getMessage());
+                Log.e(TAG, "Cause: " + e.getCause() + ", causeStr: " + e.getCause().toString() + ", causeMsg: " + e.getCause().getMessage());
+            }
+            catch(Exception exc) {
+                Log.e(TAG, "Couldn't get causes/messages");
+                e.printStackTrace();
+            }
+            Log.e(TAG, "class: "+ e.getClass().getCanonicalName()+", "+e.getClass().getName()+", "+e.getClass().getSimpleName());
+            Map<Thread, StackTraceElement[]> threadMap = Thread.getAllStackTraces();
+            for (Map.Entry<Thread, StackTraceElement[]> entry : threadMap.entrySet()) {
+                Log.i(TAG, "Thread ID: "+entry.getKey().getId()+", stacktrace: "+entry.getKey().getStackTrace().length);
+            }
+            Log.e(TAG, "Thread name: "+t.getName()+", State:"+t.getState().toString());
+            Log.e(TAG, "getLocalizedMessage stacktrace: " + e.getLocalizedMessage());
+            Log.e(TAG, "Classname stacktrace: "+e.getStackTrace()[0].getClassName());
+            Log.e(TAG, "Filename stacktrace: "+e.getStackTrace()[0].getFileName());
+            Log.e(TAG, "MethodName stacktrace: "+e.getStackTrace()[0].getMethodName());
+
+            for(int i = 0; i<e.getStackTrace().length; i++){
+                Log.e(TAG, e.getStackTrace()[i].toString());
+                stackTrace += e.getStackTrace()[i].toString()+"\n";
+            }
 
             String content = Base64.encodeToString(stackTrace.getBytes("UTF-8"), Base64.NO_WRAP);
 
+            int flag = 1;
+            if(e instanceof Error) flag = 2;
+
             params.put("app", TracelyInfo.API_KEY);
             params.put("app_version", TracelyInfo.APP_VERSION);
-            report.put("reason", e.getMessage());
-            report.put("content", content);
+
+            String cause = e.getLocalizedMessage() != null ? e.getClass().getName() +":"+ e.getLocalizedMessage() : e.getClass().getName() + " at " +e.getStackTrace()[0].getMethodName() + "." + e.getStackTrace()[0].getLineNumber();
+
+            exception_data.put("name", e.getClass().getSimpleName());
+            exception_data.put("reason", cause);
+            exception_data.put("content", content);
+            exception_data.put("flag", flag);
+
             report.put("user_log", TracelyManager.GetUserLog());
             report.put("system_log", TracelyManager.getLogcat());
-            report.put("flag", 2);
             report.put("app_start", TracelyManager.getTimestamp());
 
             params.put("report_device", TracelyManager.GetReportedDevice());
+            report.put("exception_data", exception_data);
             params.put("exception_log", report);
 
             stringParams = params.toString();
@@ -81,8 +114,13 @@ public class TracelyExceptionHandler implements Thread.UncaughtExceptionHandler 
             StringEntity se = new StringEntity(stringParams, HTTP.UTF_8);
             httpPost.setEntity(se);
 
+            TracelyManager.InterruptPingsTask();
+
             TracelyHTTPAsyncTask a = new TracelyHTTPAsyncTask(new TracelyConnection(httpPost, TracelyMethod.TRACELY_REPORT));
-            a.execute("a", "b", "c");
+            Runnable r = new TracelyAsyncThread(a);
+            Thread th = new Thread(r);
+            th.setPriority(Thread.MAX_PRIORITY);
+            th.run();
         }
         catch (Exception ex) {
             ex.printStackTrace();

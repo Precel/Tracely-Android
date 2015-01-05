@@ -3,10 +3,8 @@ package io.rwilinski.tracely;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.pm.ActivityInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
-import android.content.res.Configuration;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.BatteryManager;
@@ -54,8 +52,11 @@ public class TracelyManager {
     public static Context context;
 
     public static JSONArray USER_LOG;
+    public static String logcatLinesCount = "50";
+    public static Thread pingsTaskThread;
 
     private static String[] stackTraceFileList = null;
+    private static TracelyPingAsyncTask pingsAsyncTask;
 
     public TracelyManager() {
         this._instance = this;
@@ -84,25 +85,6 @@ public class TracelyManager {
     public static void Logger(String msg) {
         if(isDebug) {
             Log.i(LOGTAG, msg);
-        }
-    }
-
-    public static void Base64Encode(String str) {
-        String result = "";
-        Logger("-------BASE64 TESTS------");
-        result = Base64.encodeToString(str.getBytes(), Base64.DEFAULT);
-        Logger( "#1: "+result);
-
-        try {
-            result = Base64.encodeToString(str.getBytes("UTF-8"), Base64.DEFAULT);
-            Logger("#2: "+result);
-
-            result = Base64.encodeToString(str.getBytes( "ISO-8859-1"), Base64.DEFAULT);
-            Logger("#3: "+result);
-        }
-        catch(Exception e) {
-            Logger( "Bash64 Exception: "+e.getMessage());
-            e.printStackTrace();
         }
     }
 
@@ -256,57 +238,10 @@ public class TracelyManager {
     }
 
     public static void TestConnection_1() {
-        Log.d(LOGTAG, "Testing connection");
-        DefaultHttpClient httpClient = new DefaultHttpClient();
-        HttpPost httpPost = new HttpPost(TracelyInfo.URL + "exception_log/");
-        String stringParams = "";
-
-        DisplayMetrics metrics = new DisplayMetrics();
-        WindowManager windowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
-        windowManager.getDefaultDisplay().getMetrics(metrics);
-
-        try {
-            JSONObject params = new JSONObject();
-            JSONObject report = new JSONObject();
-
-            String content = Base64.encodeToString("Stacktrace here... test test test".getBytes("UTF-8"), Base64.NO_WRAP);
-            Log.d(LOGTAG, "CONTENT encoded: "+content);
-
-            params.put("app", TracelyInfo.API_KEY);
-            params.put("app_version", TracelyInfo.APP_VERSION);
-            report.put("reason", "CRASH - test string");
-            report.put("content", content);
-            report.put("user_log", GetUserLog());
-            report.put("system_log",  getLogcat());
-            report.put("app_start", getTimestamp());
-            report.put("flag", 0); //Exception
-
-            params.put("report_device", GetReportedDevice());
-            params.put("exception_log", report);
-
-            stringParams = params.toString();
-            stringParams = stringParams.replaceAll("\\\\","");
-        }
-        catch(Exception e) {
-            Logger( "Json creation failed!");
-            e.printStackTrace();
-        }
-
-        try {
-            Log.d(LOGTAG, "StringParams: "+stringParams);
-            StringEntity se = new StringEntity(stringParams, HTTP.UTF_8);
-            httpPost.setEntity(se);
-        }
-        catch(Exception e) {
-            Log.d(LOGTAG,"failed to set entity");
-        }
-
-        TracelyHTTPAsyncTask a = new TracelyHTTPAsyncTask(new TracelyConnection(httpPost, TracelyMethod.TRACELY_REPORT));
-        a.execute("a", "b", "c");
+        RegisterErrorOrException("Test_Exception", "TracelyManager.TestConnection_1", "bla bla blah", TracelyFlag.EXCEPTION);
     }
 
     private static void Launch() {
-        DefaultHttpClient httpClient = new DefaultHttpClient();
         HttpPost httpPost = new HttpPost(TracelyInfo.URL + "launch/");
         String stringParams = "";
 
@@ -343,126 +278,66 @@ public class TracelyManager {
         catch(Exception e) {
             Log.d(LOGTAG,"failed to set entity");
         }
+
         TracelyHTTPAsyncTask a = new TracelyHTTPAsyncTask(new TracelyConnection(httpPost, TracelyMethod.TRACELY_LAUNCH));
-        a.execute("a", "b", "c");
+        Runnable r = new TracelyAsyncThread(a);
+        Thread th = new Thread(r);
+        th.setPriority(Thread.MAX_PRIORITY);
+        th.run();
+
     }
 
-    public static void RegisterHandledException(String cause, String stackTrace) {
-        DefaultHttpClient httpClient = new DefaultHttpClient();
+    public static void InterruptPingsTask() {
+        if(pingsAsyncTask != null) {
+            Log.d(LOGTAG, "Killing ping AsyncTask!");
+            pingsAsyncTask.Interrupt();
+        }
+
+        if(pingsTaskThread != null) {
+            Log.d(LOGTAG, "Killing ping pingsTaskThread!");
+            pingsTaskThread.interrupt();
+        }
+    }
+
+    public static void RegisterErrorOrException(String name, String cause, String stackTrace, TracelyFlag flag) {
+
+        InterruptPingsTask();
+
         HttpPost httpPost = new HttpPost(TracelyInfo.URL + "exception_log/");
         String stringParams = "";
+
+        DisplayMetrics metrics = new DisplayMetrics();
+        WindowManager windowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
+        windowManager.getDefaultDisplay().getMetrics(metrics);
 
         try {
             JSONObject params = new JSONObject();
             JSONObject report = new JSONObject();
+            JSONObject exception_data = new JSONObject();
 
             String content = Base64.encodeToString(stackTrace.getBytes("UTF-8"), Base64.NO_WRAP);
 
             params.put("app", TracelyInfo.API_KEY);
             params.put("app_version", TracelyInfo.APP_VERSION);
-            report.put("reason", cause);
-            report.put("content", content);
-            report.put("user_log", GetUserLog());
-            report.put("system_log", getLogcat());
-            report.put("app_start", getTimestamp());
-            report.put("flag", 1);
 
-            params.put("report_device", GetReportedDevice());
-            params.put("exception_log", report);
+            name = name != null ? name : "Unnamed Exception";
+            cause = cause != null ? cause : "Unknown Reason (look first line of stacktrace)";
 
-            stringParams = params.toString();
-            stringParams = stringParams.replaceAll("\\\\","");
+            exception_data.put("name", name);
+            exception_data.put("reason", cause);
+            exception_data.put("content", content);
+            exception_data.put("flag", TracelyFlag.toInt(flag));
 
-        }
-        catch(Exception e) {
-            Logger( "Json creation failed!");
-            e.printStackTrace();
-        }
-
-        try {
-            Log.d(LOGTAG, "StringParams: "+stringParams);
-            StringEntity se = new StringEntity(stringParams, HTTP.UTF_8);
-            httpPost.setEntity(se);
-        }
-        catch(Exception e) {
-            Log.d(LOGTAG,"failed to set entity");
-        }
-
-        TracelyHTTPAsyncTask a = new TracelyHTTPAsyncTask(new TracelyConnection(httpPost, TracelyMethod.TRACELY_REPORT));
-        a.execute("a", "b", "c");
-    }
-
-    public static void RegisterUnhandledException(String cause, String stackTrace) {
-        DefaultHttpClient httpClient = new DefaultHttpClient();
-        HttpPost httpPost = new HttpPost(TracelyInfo.URL + "exception_log/");
-        String stringParams = "";
-
-        try {
-            JSONObject params = new JSONObject();
-            JSONObject report = new JSONObject();
-
-            String content = Base64.encodeToString(stackTrace.getBytes("UTF-8"), Base64.NO_WRAP);
-
-            params.put("app", TracelyInfo.API_KEY);
-            params.put("app_version", TracelyInfo.APP_VERSION);
-            report.put("reason", cause);
-            report.put("content", content);
-            report.put("user_log", GetUserLog());
-            report.put("system_log", getLogcat());
-            report.put("app_start", getTimestamp());
-            report.put("flag", 0);
-
-            params.put("report_device", GetReportedDevice());
-            params.put("exception_log", report);
-
-            stringParams = params.toString();
-            stringParams = stringParams.replaceAll("\\\\","");
-
-        }
-        catch(Exception e) {
-            Logger( "Json creation failed!");
-            e.printStackTrace();
-        }
-
-        try {
-            Log.d(LOGTAG, "StringParams: "+stringParams);
-            StringEntity se = new StringEntity(stringParams, HTTP.UTF_8);
-            httpPost.setEntity(se);
-        }
-        catch(Exception e) {
-            Log.d(LOGTAG,"failed to set entity");
-        }
-
-        TracelyHTTPAsyncTask a = new TracelyHTTPAsyncTask(new TracelyConnection(httpPost, TracelyMethod.TRACELY_REPORT));
-        a.execute("a", "b", "c");
-    }
-
-    public static void RegisterErrorException(String cause, String stackTrace) {
-        DefaultHttpClient httpClient = new DefaultHttpClient();
-        HttpPost httpPost = new HttpPost(TracelyInfo.URL + "exception_log/");
-        String stringParams = "";
-
-        try {
-            JSONObject params = new JSONObject();
-            JSONObject report = new JSONObject();
-
-            String content = Base64.encodeToString(stackTrace.getBytes("UTF-8"), Base64.NO_WRAP);
-
-            params.put("app", TracelyInfo.API_KEY);
-            params.put("app_version", TracelyInfo.APP_VERSION);
-            report.put("reason", cause);
-            report.put("content", content);
             report.put("user_log", GetUserLog());
             report.put("system_log",  getLogcat());
             report.put("app_start", getTimestamp());
-            report.put("flag", 2);
 
             params.put("report_device", GetReportedDevice());
+            report.put("exception_data", exception_data);
             params.put("exception_log", report);
 
             stringParams = params.toString();
             stringParams = stringParams.replaceAll("\\\\","");
-
         }
         catch(Exception e) {
             Logger( "Json creation failed!");
@@ -479,7 +354,35 @@ public class TracelyManager {
         }
 
         TracelyHTTPAsyncTask a = new TracelyHTTPAsyncTask(new TracelyConnection(httpPost, TracelyMethod.TRACELY_REPORT));
-        a.execute("a", "b", "c");
+        Runnable r = new TracelyAsyncThread(a);
+        Thread th = new Thread(r);
+        th.setPriority(Thread.MAX_PRIORITY);
+        th.run();
+    }
+
+    public static void RegisterHandledException(String name, String cause, String stackTrace) {
+        RegisterErrorOrException(name,cause,stackTrace, TracelyFlag.HANDLED_EXCEPTION);
+    }
+
+    public static void RegisterUnhandledException(String name, String cause, String stackTrace) {
+       RegisterErrorOrException(name,cause,stackTrace, TracelyFlag.EXCEPTION);
+    }
+
+    public static void RegisterErrorException(String name, String cause, String stackTrace) {
+        RegisterErrorOrException(name,cause,stackTrace,TracelyFlag.ERROR);
+    }
+
+    public static void RegisterErrorOrException(Throwable t) {
+        if(t instanceof Exception) RegisterErrorOrException(t.getMessage(), t.getCause().toString(), t.getStackTrace().toString(), TracelyFlag.EXCEPTION);
+        else if(t instanceof Error) RegisterErrorOrException(t.getMessage(), t.getCause().toString(), t.getStackTrace().toString(), TracelyFlag.ERROR);
+    }
+
+    public static void RegisterError(Error error) {
+        RegisterErrorOrException(error.getMessage(), error.getCause().toString(), error.getStackTrace().toString(), TracelyFlag.ERROR);
+    }
+
+    public static void RegisterException(Exception exception) {
+        RegisterErrorOrException(exception.getMessage(), exception.getCause().toString(), exception.getStackTrace().toString(), TracelyFlag.ERROR);
     }
 
     public static void SendPings(JSONArray array) {
@@ -528,8 +431,11 @@ public class TracelyManager {
                 Log.d(LOGTAG, "Getting array of pings...");
                 JSONArray pingsArray = new JSONArray(responseBody);
 
-                Runnable r = new TracelyPingsThread(pingsArray);
-                new Thread(r).start();
+                Runnable r = new TracelyAsyncThread(pingsArray);
+                Thread th = new Thread(r);
+                th.setPriority(Thread.MIN_PRIORITY);
+                th.run();
+                pingsTaskThread = th;
             }
             else {
                 Log.d(LOGTAG, "No need to handle response.");
@@ -859,7 +765,7 @@ public class TracelyManager {
     public static String getLogcat() {
         String logcat = "UNKNOWN";
         try {
-            Process process = Runtime.getRuntime().exec("logcat -d -t 100");
+            Process process = Runtime.getRuntime().exec("logcat -d -t "+logcatLinesCount);
             BufferedReader bufferedReader = new BufferedReader(
                     new InputStreamReader(process.getInputStream()));
 
@@ -887,5 +793,9 @@ public class TracelyManager {
         }
 
         return output;
+    }
+
+    public static void SetPingsTask(TracelyPingAsyncTask thr) {
+        pingsAsyncTask = thr;
     }
 }
