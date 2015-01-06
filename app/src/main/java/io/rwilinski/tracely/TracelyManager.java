@@ -1,8 +1,10 @@
 package io.rwilinski.tracely;
 
+import android.app.ActivityManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.ConfigurationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.net.ConnectivityManager;
@@ -527,7 +529,7 @@ public class TracelyManager {
 
         try {
             device.put("manufacturer", Build.MANUFACTURER);
-            device.put("model", android.os.Build.MODEL);
+            device.put("model", getDeviceName());
             device.put("os", 0);
             device.put("os_version", Build.VERSION.RELEASE);
             device.put("processor_name", getCpuInfo());
@@ -728,7 +730,10 @@ public class TracelyManager {
                 sb.append("\n");
 
                 if(line.contains("Hardware")) {
-                    return line.replace("Hardwaret: ", "");
+                    return line.replace("Hardware", "");
+                }
+                else {
+                    return "unknown";
                 }
             }
         }
@@ -794,6 +799,30 @@ public class TracelyManager {
 
         return output;
     }
+
+    public static String getDeviceName() {
+        String manufacturer = Build.MANUFACTURER;
+        String model = Build.MODEL;
+        if (model.startsWith(manufacturer)) {
+            return capitalize(model);
+        } else {
+            return capitalize(manufacturer) + " " + model;
+        }
+    }
+
+
+    private static String capitalize(String s) {
+        if (s == null || s.length() == 0) {
+            return "";
+        }
+        char first = s.charAt(0);
+        if (Character.isUpperCase(first)) {
+            return s;
+        } else {
+            return Character.toUpperCase(first) + s.substring(1);
+        }
+    }
+
 
     public static void SetPingsTask(TracelyPingAsyncTask thr) {
         pingsAsyncTask = thr;
