@@ -11,9 +11,9 @@ public enum TracelyFlag {
     public static TracelyFlag toEnum(int x) {
         switch(x) {
             case 0:
-                return HANDLED_EXCEPTION;
-            case 1:
                 return EXCEPTION;
+            case 1:
+                return HANDLED_EXCEPTION;
             case 2:
                 return ERROR;
         }
@@ -22,9 +22,9 @@ public enum TracelyFlag {
 
     public static int toInt(TracelyFlag m) {
         switch(m) {
-            case HANDLED_EXCEPTION:
-                return 0;
             case EXCEPTION:
+                return 0;
+            case HANDLED_EXCEPTION:
                 return 1;
             case ERROR:
                 return 2;

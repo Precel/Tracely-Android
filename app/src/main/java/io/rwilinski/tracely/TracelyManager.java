@@ -42,6 +42,7 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.util.Dictionary;
+import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -322,12 +323,31 @@ public class TracelyManager {
             params.put("app", TracelyInfo.API_KEY);
             params.put("app_version", TracelyInfo.APP_VERSION);
 
-            name = name != null ? name : "Unnamed Exception";
-            cause = cause != null ? cause : "Unknown Reason (look first line of stacktrace)";
+            JSONArray threads = new JSONArray();
+            String stringEntry = "";
+
+            Map<Thread, StackTraceElement[]> threadMap = Thread.getAllStackTraces();
+            for (Map.Entry<Thread, StackTraceElement[]> entry : threadMap.entrySet()) {
+                stringEntry = "";
+                Log.i(LOGTAG, "Thread ID: "+entry.getKey().getId()+", stacktrace: "+entry.getKey().getStackTrace().length);
+                for(int i = 0; i<entry.getKey().getStackTrace().length; i++) {
+                    stringEntry += entry.getKey().getStackTrace()[i].toString()+"\n";
+                }
+                JSONObject thr = new JSONObject();
+                thr.put("thread",entry.getKey().getName());
+                thr.put("pid",entry.getKey().getId());
+                thr.put("state",entry.getKey().getState().toString());
+                thr.put("stacktrace", stringEntry);
+                threads.put(thr);
+            }
+
+            name = name != null ? name : "";
+            cause = cause != null ? cause : "";
 
             exception_data.put("name", name);
             exception_data.put("reason", cause);
             exception_data.put("content", content);
+            exception_data.put("threads", Base64.encodeToString(threads.toString().getBytes("UTF-8"), Base64.NO_WRAP));
             exception_data.put("flag", TracelyFlag.toInt(flag));
 
             report.put("user_log", GetUserLog());
@@ -375,16 +395,20 @@ public class TracelyManager {
     }
 
     public static void RegisterErrorOrException(Throwable t) {
-        if(t instanceof Exception) RegisterErrorOrException(t.getMessage(), t.getCause().toString(), t.getStackTrace().toString(), TracelyFlag.EXCEPTION);
-        else if(t instanceof Error) RegisterErrorOrException(t.getMessage(), t.getCause().toString(), t.getStackTrace().toString(), TracelyFlag.ERROR);
+        if(t instanceof Exception) RegisterErrorOrException(t.getClass().getSimpleName(), t.getLocalizedMessage() != null ? t.getClass().getName() +":"+ t.getLocalizedMessage() : t.getClass().getName() + " at " +t.getStackTrace()[0].getClassName() + "." + t.getStackTrace()[0].getMethodName() + ":"+ t.getStackTrace()[0].getLineNumber(), t.getStackTrace().toString(), TracelyFlag.EXCEPTION);
+        else if(t instanceof Error) RegisterErrorOrException(t.getClass().getSimpleName(), t.getLocalizedMessage() != null ? t.getClass().getName() +":"+ t.getLocalizedMessage() : t.getClass().getName() + " at " +t.getStackTrace()[0].getClassName() + "." + t.getStackTrace()[0].getMethodName() + ":"+ t.getStackTrace()[0].getLineNumber(), t.getStackTrace().toString(), TracelyFlag.ERROR);
     }
 
     public static void RegisterError(Error error) {
-        RegisterErrorOrException(error.getMessage(), error.getCause().toString(), error.getStackTrace().toString(), TracelyFlag.ERROR);
+        RegisterErrorOrException(error.getClass().getSimpleName(), error.getLocalizedMessage() != null ? error.getClass().getName() +":"+ error.getLocalizedMessage() : error.getClass().getName() + " at " +error.getStackTrace()[0].getMethodName() + "." + error.getStackTrace()[0].getLineNumber(), error.getStackTrace().toString(), TracelyFlag.ERROR);
     }
 
     public static void RegisterException(Exception exception) {
-        RegisterErrorOrException(exception.getMessage(), exception.getCause().toString(), exception.getStackTrace().toString(), TracelyFlag.ERROR);
+        RegisterErrorOrException(exception.getClass().getSimpleName(), exception.getLocalizedMessage() != null ? exception.getClass().getName() +":"+ exception.getLocalizedMessage() : exception.getClass().getName() + " at " +exception.getStackTrace()[0].getMethodName() + "." + exception.getStackTrace()[0].getMethodName() + ":"+ exception.getStackTrace()[0].getLineNumber(), exception.getStackTrace().toString(), TracelyFlag.EXCEPTION);
+    }
+
+    public static void RegisterHandledException(Exception exception) {
+        RegisterErrorOrException(exception.getClass().getSimpleName(), exception.getLocalizedMessage() != null ? exception.getClass().getName() +":"+ exception.getLocalizedMessage() : exception.getClass().getName() + " at " +exception.getStackTrace()[0].getMethodName() + "." + exception.getStackTrace()[0].getMethodName() + ":" + exception.getStackTrace()[0].getLineNumber(), exception.getStackTrace().toString(), TracelyFlag.HANDLED_EXCEPTION);
     }
 
     public static void SendPings(JSONArray array) {
