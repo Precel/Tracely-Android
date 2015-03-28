@@ -1,10 +1,8 @@
 package io.rwilinski.tracely;
 
-import android.app.ActivityManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.pm.ConfigurationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.net.ConnectivityManager;
@@ -74,9 +72,11 @@ public class TracelyManager {
 
     public static void SetApiKey(String key) {
         TracelyInfo.API_KEY = key;
+        Log.i(LOGTAG, "Tracely API Key set.");
     }
 
     public static void SimulateHardCrash(Object contextObject) {
+        Log.i(LOGTAG, "Simulating hard crash!");
         TracelyCrashSimulator t = TracelyCrashSimulator.getInstance();
         t.recreate();
     }
@@ -274,7 +274,7 @@ public class TracelyManager {
 
         try {
             Log.d(LOGTAG, "URL: "+TracelyInfo.URL + "launch/");
-            Log.d(LOGTAG, "StringParams: "+stringParams);
+            //Log.d(LOGTAG, "StringParams: "+stringParams);
             StringEntity se = new StringEntity(stringParams, HTTP.UTF_8);
             httpPost.setEntity(se);
         }
@@ -291,19 +291,25 @@ public class TracelyManager {
     }
 
     public static void InterruptPingsTask() {
-        if(pingsAsyncTask != null) {
-            Log.d(LOGTAG, "Killing ping AsyncTask!");
-            pingsAsyncTask.Interrupt();
-        }
+        try {
+            if (pingsAsyncTask != null) {
+                Log.d(LOGTAG, "Killing ping AsyncTask!");
+                pingsAsyncTask.Interrupt();
+            }
 
-        if(pingsTaskThread != null) {
-            Log.d(LOGTAG, "Killing ping pingsTaskThread!");
-            pingsTaskThread.interrupt();
+            if (pingsTaskThread != null) {
+                Log.d(LOGTAG, "Killing ping pingsTaskThread!");
+                pingsTaskThread.interrupt();
+            }
+        }
+        catch(Exception e) {
+            Log.i(LOGTAG, "Failed to interrupt task! "+e.getMessage());
         }
     }
 
     public static void RegisterErrorOrException(String name, String cause, String stackTrace, TracelyFlag flag) {
 
+        Log.i(LOGTAG, "Registering new exception: "+name+", StackTrace: "+stackTrace);
         InterruptPingsTask();
 
         HttpPost httpPost = new HttpPost(TracelyInfo.URL + "exception_log/");
@@ -329,7 +335,7 @@ public class TracelyManager {
             Map<Thread, StackTraceElement[]> threadMap = Thread.getAllStackTraces();
             for (Map.Entry<Thread, StackTraceElement[]> entry : threadMap.entrySet()) {
                 stringEntry = "";
-                Log.i(LOGTAG, "Thread ID: "+entry.getKey().getId()+", stacktrace: "+entry.getKey().getStackTrace().length);
+                //Log.i(LOGTAG, "Thread ID: "+entry.getKey().getId()+", stacktrace: "+entry.getKey().getStackTrace().length);
                 for(int i = 0; i<entry.getKey().getStackTrace().length; i++) {
                     stringEntry += entry.getKey().getStackTrace()[i].toString()+"\n";
                 }
@@ -367,7 +373,7 @@ public class TracelyManager {
         }
 
         try {
-            Log.d(LOGTAG, "StringParams: "+stringParams);
+            //Log.d(LOGTAG, "StringParams: "+stringParams);
             StringEntity se = new StringEntity(stringParams, HTTP.UTF_8);
             httpPost.setEntity(se);
         }
@@ -383,14 +389,17 @@ public class TracelyManager {
     }
 
     public static void RegisterHandledException(String name, String cause, String stackTrace) {
+        Log.i(LOGTAG, "RegisterHandledException");
         RegisterErrorOrException(name,cause,stackTrace, TracelyFlag.HANDLED_EXCEPTION);
     }
 
     public static void RegisterUnhandledException(String name, String cause, String stackTrace) {
+        Log.i(LOGTAG, "RegisterUnhandledException");
        RegisterErrorOrException(name,cause,stackTrace, TracelyFlag.EXCEPTION);
     }
 
     public static void RegisterErrorException(String name, String cause, String stackTrace) {
+        Log.i(LOGTAG, "RegisterErrorException");
         RegisterErrorOrException(name,cause,stackTrace,TracelyFlag.ERROR);
     }
 
@@ -408,7 +417,7 @@ public class TracelyManager {
     }
 
     public static void RegisterHandledException(Exception exception) {
-        RegisterErrorOrException(exception.getClass().getSimpleName(), exception.getLocalizedMessage() != null ? exception.getClass().getName() +":"+ exception.getLocalizedMessage() : exception.getClass().getName() + " at " +exception.getStackTrace()[0].getMethodName() + "." + exception.getStackTrace()[0].getMethodName() + ":" + exception.getStackTrace()[0].getLineNumber(), exception.getStackTrace().toString(), TracelyFlag.HANDLED_EXCEPTION);
+        RegisterErrorOrException(exception.getClass().getSimpleName(), exception.getLocalizedMessage() != null ? exception.getClass().getName() + ":" + exception.getLocalizedMessage() : exception.getClass().getName() + " at " + exception.getStackTrace()[0].getMethodName() + "." + exception.getStackTrace()[0].getMethodName() + ":" + exception.getStackTrace()[0].getLineNumber(), exception.getStackTrace().toString(), TracelyFlag.HANDLED_EXCEPTION);
     }
 
     public static void SendPings(JSONArray array) {
@@ -434,7 +443,7 @@ public class TracelyManager {
         }
 
         try {
-            Log.d(LOGTAG, "StringParams: "+stringParams);
+            //Log.d(LOGTAG, "StringParams: "+stringParams);
             StringEntity se = new StringEntity(stringParams, HTTP.UTF_8);
             httpPost.setEntity(se);
         }
@@ -591,36 +600,41 @@ public class TracelyManager {
     }
 
     public static String GetNetworkClass() {
-        ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
-        NetworkInfo info = cm.getActiveNetworkInfo();
-        if(info==null || !info.isConnected())
-            return "-"; //not connected
-        if(info.getType() == ConnectivityManager.TYPE_WIFI)
-            return "WIFI";
-        if(info.getType() == ConnectivityManager.TYPE_MOBILE){
-            int networkType = info.getSubtype();
-            switch (networkType) {
-                case TelephonyManager.NETWORK_TYPE_GPRS:
-                case TelephonyManager.NETWORK_TYPE_EDGE:
-                case TelephonyManager.NETWORK_TYPE_CDMA:
-                case TelephonyManager.NETWORK_TYPE_1xRTT:
-                case TelephonyManager.NETWORK_TYPE_IDEN:
-                    return "2G";
-                case TelephonyManager.NETWORK_TYPE_UMTS:
-                case TelephonyManager.NETWORK_TYPE_EVDO_0:
-                case TelephonyManager.NETWORK_TYPE_EVDO_A:
-                case TelephonyManager.NETWORK_TYPE_HSDPA:
-                case TelephonyManager.NETWORK_TYPE_HSUPA:
-                case TelephonyManager.NETWORK_TYPE_HSPA:
-                case TelephonyManager.NETWORK_TYPE_EVDO_B:
-                case TelephonyManager.NETWORK_TYPE_EHRPD:
-                case TelephonyManager.NETWORK_TYPE_HSPAP:
-                    return "3G";
-                case TelephonyManager.NETWORK_TYPE_LTE:
-                    return "4G";
-                default:
-                    return "?";
+        try {
+            ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            NetworkInfo info = cm.getActiveNetworkInfo();
+            if (info == null || !info.isConnected())
+                return "-"; //not connected
+            if (info.getType() == ConnectivityManager.TYPE_WIFI)
+                return "WIFI";
+            if (info.getType() == ConnectivityManager.TYPE_MOBILE) {
+                int networkType = info.getSubtype();
+                switch (networkType) {
+                    case TelephonyManager.NETWORK_TYPE_GPRS:
+                    case TelephonyManager.NETWORK_TYPE_EDGE:
+                    case TelephonyManager.NETWORK_TYPE_CDMA:
+                    case TelephonyManager.NETWORK_TYPE_1xRTT:
+                    case TelephonyManager.NETWORK_TYPE_IDEN:
+                        return "2G";
+                    case TelephonyManager.NETWORK_TYPE_UMTS:
+                    case TelephonyManager.NETWORK_TYPE_EVDO_0:
+                    case TelephonyManager.NETWORK_TYPE_EVDO_A:
+                    case TelephonyManager.NETWORK_TYPE_HSDPA:
+                    case TelephonyManager.NETWORK_TYPE_HSUPA:
+                    case TelephonyManager.NETWORK_TYPE_HSPA:
+                    case TelephonyManager.NETWORK_TYPE_EVDO_B:
+                    case TelephonyManager.NETWORK_TYPE_EHRPD:
+                    case TelephonyManager.NETWORK_TYPE_HSPAP:
+                        return "3G";
+                    case TelephonyManager.NETWORK_TYPE_LTE:
+                        return "4G";
+                    default:
+                        return "?";
+                }
             }
+        }
+        catch(Exception e) {
+            Log.e(LOGTAG, "Unable to get NetworkClass due to lack of permission probably. "+e.getMessage());
         }
         return "?";
     }
@@ -645,7 +659,7 @@ public class TracelyManager {
     }
 
     public static String GetCarrier() {
-        TelephonyManager manager = (TelephonyManager)context.getSystemService(Context.TELEPHONY_SERVICE);
+        TelephonyManager manager = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
         String carrierName = manager.getNetworkOperatorName();
         return carrierName;
     }

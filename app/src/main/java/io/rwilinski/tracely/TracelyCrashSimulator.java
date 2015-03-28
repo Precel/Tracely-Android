@@ -13,7 +13,6 @@ public class TracelyCrashSimulator extends ActionBarActivity {
 
     public static TracelyCrashSimulator _instance;
 
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         _instance = this;

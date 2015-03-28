@@ -76,7 +76,7 @@ public class TracelyExceptionHandler implements Thread.UncaughtExceptionHandler 
             Map<Thread, StackTraceElement[]> threadMap = Thread.getAllStackTraces();
             for (Map.Entry<Thread, StackTraceElement[]> entry : threadMap.entrySet()) {
                 stringEntry = "";
-                Log.i(TAG, "Thread ID: "+entry.getKey().getId()+", stacktrace: "+entry.getKey().getStackTrace().length);
+                //Log.i(TAG, "Thread ID: "+entry.getKey().getId()+", stacktrace: "+entry.getKey().getStackTrace().length);
                 for(int i = 0; i<entry.getKey().getStackTrace().length; i++) {
                     stringEntry += entry.getKey().getStackTrace()[i].toString()+"\n";
                 }
@@ -94,7 +94,7 @@ public class TracelyExceptionHandler implements Thread.UncaughtExceptionHandler 
             Log.e(TAG, "MethodName stacktrace: "+e.getStackTrace()[0].getMethodName());
 
             for(int i = 0; i<e.getStackTrace().length; i++){
-                Log.e(TAG, e.getStackTrace()[i].toString());
+                //Log.e(TAG, e.getStackTrace()[i].toString());
                 stackTrace += e.getStackTrace()[i].toString()+"\n";
             }
 
