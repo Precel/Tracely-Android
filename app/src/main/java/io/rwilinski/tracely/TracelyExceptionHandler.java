@@ -125,7 +125,7 @@ public class TracelyExceptionHandler implements Thread.UncaughtExceptionHandler 
             stringParams = params.toString();
             stringParams = stringParams.replaceAll("\\\\","");
 
-            Log.d(TAG, "StringParams: "+stringParams);
+            //Log.d(TAG, "StringParams: "+stringParams);
 
             StringEntity se = new StringEntity(stringParams, HTTP.UTF_8);
             httpPost.setEntity(se);

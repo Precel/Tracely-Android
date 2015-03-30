@@ -53,7 +53,7 @@ public class TracelyManager {
     public static Context context;
 
     public static JSONArray USER_LOG;
-    public static String logcatLinesCount = "50";
+    public static String logcatLinesCount = "100";
     public static Thread pingsTaskThread;
 
     private static String[] stackTraceFileList = null;
@@ -818,7 +818,7 @@ public class TracelyManager {
                 if(!line.contains("Tracely")) log.append(line + "\n");
             }
             logcat = log.toString();
-            Logger("Escaped logcat: "+logcat);
+            //Logger("Escaped logcat: "+logcat);
         }
         catch (IOException e) {
             logcat = "Failed to get, probably permission READ_LOGS is missing. True cause: "+e.getMessage();
