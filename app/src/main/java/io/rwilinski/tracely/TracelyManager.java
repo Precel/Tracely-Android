@@ -221,7 +221,7 @@ public class TracelyManager {
     }
 
     public static void saveRequestToStorage(String data) {
-        Log.d(LOGTAG, "Saving: "+data);
+        Log.d(LOGTAG, "Saving exception report");
         final Writer result = new StringWriter();
         final PrintWriter printWriter = new PrintWriter(result);
 
@@ -547,6 +547,7 @@ public class TracelyManager {
         }
         catch(Exception e) {
             Logger( e.getMessage());
+
             e.printStackTrace();
         }
 
